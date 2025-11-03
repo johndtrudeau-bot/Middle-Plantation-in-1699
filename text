@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Custom Image Map with UI Enhancements</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+        #map { 
+            height: 100vh; 
+            width: 100%; 
+        }
+        .controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            display: flex;
+            gap: 5px;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 5px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .controls button {
+            padding: 5px 8px; /* Reduced padding */
+            font-size: 12px;  /* Smaller font size */
+            cursor: pointer;
+            border: 1px solid #ccc;
+            border-radius: 3px;
+        }
+        .popup-content { 
+            text-align: center; 
+        }
+        .popup-content button { 
+            margin-top: 5px; 
+        }
+        .popup-description { 
+            font-size: 0.8em; 
+            color: #555; 
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="controls">
+        <button id="exportButton">Export</button>
+        <button id="importButton">Import</button>
+        <input type="file" id="importFile" style="display: none;">
+    </div>
+
+    <script>
+        // 1. Initialize map with CRS.Simple
+        var map = L.map('map', { crs: L.CRS.Simple });
+
+        // 2. Load custom image
+        var imageWidth = 1184;
+        var imageHeight = 864;
+        var imageUrl = 'Improved Map';
+
+        var bounds = [[0, 0], [imageHeight, imageWidth]];
+        L.imageOverlay(imageUrl, bounds).addTo(map);
+
+        // 3. Set map bounds
+        map.setMaxBounds(bounds);
+        map.fitBounds(bounds);
+
+        // Array to hold all marker objects
+        var markers = [];
+
+        // Function to save markers to localStorage
+        function saveMarkers() {
+            var markerData = markers.map(marker => ({
+                lat: marker.getLatLng().lat,
+                lng: marker.getLatLng().lng,
+                label: marker.options.label,
+                description: marker.options.description
+            }));
+            localStorage.setItem('mapMarkers', JSON.stringify(markerData));
+        }
+
+        // Function to convert URLs in a string to clickable links
+        function linkify(text) {
+            const urlRegex = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
+            return text.replace(urlRegex, function(url) {
+                return '<a href="' + url + '" target="_blank">' + url + '</a>';
+            });
+        }
+
+        // Function to add a marker with a label, description, and delete button
+        function addMarker(y, x, label, description) {
+            var marker = L.marker([y, x], { label: label, description: description }).addTo(map);
+            
+            // Linkify the description text
+            const linkedDescription = linkify(description);
+
+            // Create popup content with label, description, and delete button
+            var popupContent = L.DomUtil.create('div', 'popup-content');
+            popupContent.innerHTML = `
+                <h3>${label}</h3>
+                <p class="popup-description">${linkedDescription}</p>
+                <button class="delete-marker">Delete</button>
+            `;
+
+            // Bind the popup to the marker
+            marker.bindPopup(popupContent).openPopup();
+
+            // Add marker to our array and save
+            markers.push(marker);
+            saveMarkers();
+
+            // Add click listener for the delete button
+            L.DomEvent.addListener(popupContent.querySelector('.delete-marker'), 'click', function() {
+                deleteMarker(marker);
+            });
+        }
+
+        // Function to delete a marker
+        function deleteMarker(marker) {
+            map.removeLayer(marker);
+            markers = markers.filter(m => m !== marker);
+            saveMarkers();
+        }
+
+        // Function to load markers from localStorage
+        function loadMarkers() {
+            // Clear existing markers from the map and array
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+
+            var storedMarkers = JSON.parse(localStorage.getItem('mapMarkers'));
+            if (storedMarkers) {
+                storedMarkers.forEach(data => {
+                    addMarker(data.lat, data.lng, data.label, data.description || "");
+                });
+            }
+        }
+
+        // 5. Click event for adding new markers
+        map.on('click', function(e) {
+            var label = prompt("Enter label for this marker:");
+            if (!label) return;
+            var description = prompt("Enter a description (optional):");
+
+            addMarker(e.latlng.lat, e.latlng.lng, label, description || "");
+        });
+
+        // 6. Export and Import functionality
+        document.getElementById('exportButton').addEventListener('click', function() {
+            const data = localStorage.getItem('mapMarkers');
+            if (!data) {
+                alert('No markers to export!');
+                return;
+            }
+
+            const blob = new Blob([data], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'markers.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+        document.getElementById('importButton').addEventListener('click', function() {
+            document.getElementById('importFile').click();
+        });
+
+        document.getElementById('importFile').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) {
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importedData = e.target.result;
+                    localStorage.setItem('mapMarkers', importedData);
+                    loadMarkers(); // Call loadMarkers to display the new data
+                } catch (error) {
+                    alert('Invalid file format. Please import a valid JSON file.');
+                }
+            };
+            reader.readAsText(file);
+        });
+
+        // Load markers when the page loads
+        loadMarkers();
+    </script>
+</body>
+</html>
